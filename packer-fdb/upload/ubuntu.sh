@@ -34,11 +34,11 @@ npm install -g fdbtop
 cd /tmp
 
 # download the dependencies
-wget https://www.foundationdb.org/downloads/6.0.15/ubuntu/installers/foundationdb-clients_6.0.15-1_amd64.deb
-wget https://www.foundationdb.org/downloads/6.0.15/ubuntu/installers/foundationdb-server_6.0.15-1_amd64.deb
+wget https://github.com/apple/foundationdb/releases/download/7.1.11/foundationdb-clients_7.1.11-1_amd64.deb
+wget https://github.com/apple/foundationdb/releases/download/7.1.11/foundationdb-server_7.1.11-1_amd64.deb
 
 # server depends on the client packages
-dpkg -i foundationdb-clients_6.0.15-1_amd64.deb foundationdb-server_6.0.15-1_amd64.deb
+dpkg -i foundationdb-clients_7.1.11-1_amd64.deb foundationdb-server_7.1.11-1_amd64.deb
 # stop the service
 service foundationdb stop
 
