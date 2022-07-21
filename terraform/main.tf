@@ -18,36 +18,38 @@ data "aws_ami" "fdb" {
   owners = ["self"]
 }
 
+data "aws_availability_zones" "available" {}
+
+
 # Create a VPC to launch our instances into
-resource "aws_vpc" "default" {
-  cidr_block = "10.1.0.0/16"
+resource "aws_vpc" "fdb-vpc" {
+  cidr_block = "10.20.0.0/16"
   # this will solve sudo: unable to resolve host ip-10-0-xx-xx
   enable_dns_hostnames = true
 }
 
 
 # Create an internet gateway to give our subnet access to the outside world
-resource "aws_internet_gateway" "default" {
-  vpc_id = "${aws_vpc.default.id}"
+resource "aws_internet_gateway" "fdb-ig" {
+  vpc_id = "${aws_vpc.fdb-vpc.id}"
 
 }
 # Grant the VPC internet access on its main route table
 resource "aws_route" "internet_access" {
-  route_table_id         = "${aws_vpc.default.main_route_table_id}"
+  route_table_id         = "${aws_vpc.fdb-vpc.main_route_table_id}"
   destination_cidr_block = "0.0.0.0/0"
-  gateway_id             = "${aws_internet_gateway.default.id}"
+  gateway_id             = "${aws_internet_gateway.fdb-ig.id}"
 }
 
-# Create a subnet to launch our instances into
-resource "aws_subnet" "db" {
-  vpc_id                  = "${aws_vpc.default.id}"
-  cidr_block              = "10.1.1.0/24"
-  map_public_ip_on_launch = true
-  availability_zone = "${var.aws_availability_zone}"
 
+resource "aws_subnet" "fdb-subnet" {
+  count                   = var.aws_fdb_count
+  vpc_id                  = aws_vpc.fdb-vpc.id
+  cidr_block              = "10.20.${10 + count.index}.0/24"
+  availability_zone       = data.aws_availability_zones.available.names[count.index]
+  map_public_ip_on_launch = true
   tags = {
-    Name = "FDB Subnet"
-    Project = "TF:bitgn"
+    Name = var.subnet_name_tag
   }
 }
 
@@ -55,7 +57,7 @@ resource "aws_subnet" "db" {
 resource "aws_security_group" "fdb_group" {
   name        = "tf_fdb_group"
   description = "Terraform: SSH and FDB"
-  vpc_id      = "${aws_vpc.default.id}"
+  vpc_id      = "${aws_vpc.fdb-vpc.id}"
 
   # SSH access from anywhere
   ingress {
@@ -70,7 +72,7 @@ resource "aws_security_group" "fdb_group" {
     from_port   = 4500
     to_port     = "${4500 + var.fdb_procs_per_machine - 1}"
     protocol    = "tcp"
-    cidr_blocks = ["10.1.0.0/16"]
+    cidr_blocks = ["10.20.0.0/16"]
   }
   # outbound internet access
   egress {
@@ -92,7 +94,7 @@ resource "aws_instance" "fdb" {
   # The connection block tells our provisioner how to
   # communicate with the resource (instance)
 
-  availability_zone = "${var.aws_availability_zone}"
+  #availability_zone = "${var.aws_availability_zone}"
   instance_type = "${var.aws_fdb_size}"
   count = "${var.aws_fdb_count}"
   # Grab AMI id from the data source
@@ -102,7 +104,7 @@ resource "aws_instance" "fdb" {
   # I want a very specific IP address to be assigned. However
   # AWS reserves both the first four IP addresses and the last IP address
   # in each subnet CIDR block. They're not available for you to use.
-  private_ip = "${cidrhost(aws_subnet.db.cidr_block, count.index+1+100)}"
+  private_ip = "${cidrhost(aws_subnet.fdb-subnet[count.index].cidr_block, count.index+1+100)}"
 
 
   # The name of our SSH keypair we created above.
@@ -112,7 +114,7 @@ resource "aws_instance" "fdb" {
   vpc_security_group_ids = ["${aws_security_group.fdb_group.id}"]
 
   # We're going to launch into the DB subnet
-  subnet_id = "${aws_subnet.db.id}"
+  subnet_id = element(aws_subnet.fdb-subnet.*.id, count.index)
 
   tags = {
     Name = "${format("fdb-%03d", count.index + 1)}"
@@ -123,10 +125,10 @@ resource "aws_instance" "fdb" {
     source      = "init-fdb.sh"
     destination = "/tmp/init-fdb.sh"
     connection {
-    	# The default username for our AMI
-    	user = "ubuntu"
-    	private_key = "${file(var.private_key_path)}"
-    	# The connection will use the local SSH agent for authentication.
+        # The default username for our AMI
+        user = "ubuntu"
+        private_key = "${file(var.private_key_path)}"
+        # The connection will use the local SSH agent for authentication.
         type        = "ssh"
         host        = self.public_ip
     }
@@ -134,16 +136,16 @@ resource "aws_instance" "fdb" {
 
   provisioner "remote-exec" {
     connection {
-    	# The default username for our AMI
-    	user = "ubuntu"
-    	private_key = "${file(var.private_key_path)}"
-    	# The connection will use the local SSH agent for authentication.
-	type        = "ssh"
-	host        = self.public_ip
+        # The default username for our AMI
+        user = "ubuntu"
+        private_key = "${file(var.private_key_path)}"
+        # The connection will use the local SSH agent for authentication.
+        type        = "ssh"
+        host        = self.public_ip
     }
     inline = [
       "sudo chmod +x /tmp/init-fdb.sh",
-      "sudo /tmp/init-fdb.sh ${var.aws_fdb_size} ${var.aws_fdb_count} ${self.private_ip} ${cidrhost(aws_subnet.db.cidr_block, 101)} ${var.fdb_procs_per_machine}",
+      "sudo /tmp/init-fdb.sh ${var.aws_fdb_size} ${var.aws_fdb_count} ${self.private_ip} ${cidrhost(aws_subnet.fdb-subnet[0].cidr_block, 101)} ${var.fdb_procs_per_machine}",
     ]
   }
 }

@@ -12,6 +12,9 @@ variable "key_name" {
    default = "terraform"
 }
 
+variable "subnet_name_tag" {
+   default = "fdb-subnet"
+}
 
 variable "aws_access_key" {}
 variable "aws_secret_key" {}
