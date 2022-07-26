@@ -21,9 +21,9 @@
             },
             "instance_type": "t2.small",
             "ssh_username": "ubuntu",
-            "ami_name": "bitgn-fdb",
+            "ami_name": "bitgn2-fdb",
             "force_deregister": true,
-            
+
             "ami_description": "Ubuntu 16:04 with FoundationDB server",
             "tags": {
                 "OS_Version" : "Ubuntu",
@@ -45,6 +45,11 @@
         }
     ],
     "provisioners": [
+        {
+            "type": "file",
+            "source": "init-fdb.sh",
+            "destination": "/home/ubuntu/"
+        },
         {
             "type": "file",
             "source": "upload/",
