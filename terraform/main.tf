@@ -1,7 +1,6 @@
 provider "aws" {
-  access_key = "${var.aws_access_key}"
-  secret_key = "${var.aws_secret_key}"
   region     = "${var.aws_region}"
+  profile    =  "default"
 }
 
 
@@ -13,7 +12,7 @@ data "aws_ami" "fdb" {
 
   filter {
     name = "name"
-    values = ["bitgn-fdb"]
+    values = ["bitgn2-fdb"]
   }
   owners = ["self"]
 }
@@ -23,7 +22,7 @@ data "aws_availability_zones" "available" {}
 
 # Create a VPC to launch our instances into
 resource "aws_vpc" "fdb-vpc" {
-  cidr_block = "10.20.0.0/16"
+  cidr_block = "10.40.0.0/16"
   # this will solve sudo: unable to resolve host ip-10-0-xx-xx
   enable_dns_hostnames = true
 }
@@ -45,9 +44,8 @@ resource "aws_route" "internet_access" {
 resource "aws_subnet" "fdb-subnet" {
   count                   = var.aws_fdb_count
   vpc_id                  = aws_vpc.fdb-vpc.id
-  cidr_block              = "10.20.${10 + count.index}.0/24"
+  cidr_block              = "10.40.${10 + count.index}.0/24"
   availability_zone       = data.aws_availability_zones.available.names[count.index]
-  map_public_ip_on_launch = true
   tags = {
     Name = var.subnet_name_tag
   }
@@ -72,7 +70,7 @@ resource "aws_security_group" "fdb_group" {
     from_port   = 4500
     to_port     = "${4500 + var.fdb_procs_per_machine - 1}"
     protocol    = "tcp"
-    cidr_blocks = ["10.20.0.0/16"]
+    cidr_blocks = ["10.40.0.0/16"]
   }
   # outbound internet access
   egress {
@@ -121,31 +119,15 @@ resource "aws_instance" "fdb" {
     Project = "TF:bitgn"
   }
 
-  provisioner "file" {
-    source      = "init-fdb.sh"
-    destination = "/tmp/init-fdb.sh"
-    connection {
-        # The default username for our AMI
-        user = "ubuntu"
-        private_key = "${file(var.private_key_path)}"
-        # The connection will use the local SSH agent for authentication.
-        type        = "ssh"
-        host        = self.public_ip
-    }
-  }
-
-  provisioner "remote-exec" {
-    connection {
-        # The default username for our AMI
-        user = "ubuntu"
-        private_key = "${file(var.private_key_path)}"
-        # The connection will use the local SSH agent for authentication.
-        type        = "ssh"
-        host        = self.public_ip
-    }
-    inline = [
-      "sudo chmod +x /tmp/init-fdb.sh",
-      "sudo /tmp/init-fdb.sh ${var.aws_fdb_size} ${var.aws_fdb_count} ${self.private_ip} ${cidrhost(aws_subnet.fdb-subnet[0].cidr_block, 101)} ${var.fdb_procs_per_machine}",
-    ]
-  }
+    user_data = <<-EOL
+  #!/bin/bash -xe
+  private_ip=$(curl http://169.254.169.254/latest/meta-data/local-ipv4)
+  sudo chmod +x /home/ubuntu/init-fdb.sh
+  echo $private_ip >> /home/ubuntu/userdata.log
+  echo ${var.aws_fdb_size} >> /home/ubuntu/userdata.log
+  echo ${var.aws_fdb_count} >> /home/ubuntu/userdata.log
+  echo ${cidrhost(aws_subnet.fdb-subnet[0].cidr_block, 101)} >> /home/ubuntu/userdata.log
+  echo ${var.fdb_procs_per_machine} >> /home/ubuntu/userdata.log
+  sudo /home/ubuntu/init-fdb.sh ${var.aws_fdb_size} ${var.aws_fdb_count} $private_ip ${cidrhost(aws_subnet.fdb-subnet[0].cidr_block, 101)} ${var.fdb_procs_per_machine}
+  EOL
 }
